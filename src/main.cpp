@@ -2,6 +2,7 @@
 
 #include <SFML/Graphics.hpp>
 #include <SFML/OpenGL.hpp>
+#include <chrono>
 
 int main() {
     // OpenGL settings we request for:
@@ -19,6 +20,7 @@ int main() {
     settings.majorVersion = 2;
     settings.minorVersion = 1;
     sf::RenderWindow window(sf::VideoMode({1280, 720}), "Shaders", sf::State::Windowed, settings);
+    window.setFramerateLimit(60);
     // Query the settings we actually received (may be different):
     const auto& actualSettings = window.getSettings();
     std::cout << "OpenGL version " << actualSettings.majorVersion << "."
@@ -33,18 +35,42 @@ int main() {
     fullscreenTriangle[2].texCoords = {0, 2};
     // load vertex and fragment shaders:
     sf::Shader shader(std::filesystem::path{"main.vert"}, std::filesystem::path{"main.frag"});
+    shader.setUniform("resolution", (sf::Vector2f)window.getSize());
+    
     // TODO: eventually add another Shader here which uses the blur fragment shader,
     // also create a sf::RenderTexture...
+    sf::Shader postProcessShader;
+    postProcessShader.loadFromFile("blur.frag", sf::Shader::Type::Fragment);
+    postProcessShader.setUniform("resolution", (sf::Vector2f)window.getSize());
+
+    sf::RenderTexture texture({1280, 720});
+
     while (window.isOpen()) {
         while (auto e = window.pollEvent()) {
             if (e->is<sf::Event::Closed>()) {
                 return 0;
             }
+            if (const auto* mouseMoved = e->getIf<sf::Event::MouseMoved>()) {
+                sf::Vector2f pos = (sf::Vector2f)mouseMoved->position;
+                pos.y = window.getSize().y - pos.y;
+                shader.setUniform("mousePos", pos);
+            }
         }
+        auto duration = std::chrono::system_clock::now().time_since_epoch();
+        auto millis = std::chrono::duration_cast<std::chrono::milliseconds>(duration).count();
+        float funny = (millis / 100) % 10;
+        shader.setUniform("time", funny);
         // TODO: set shader uniforms and eventually draw into
         // a RenderTexture first before postprocessing into the window target.
+        texture.clear();
+        texture.draw(fullscreenTriangle, &shader);
+        texture.display();
+
+        sf::Sprite sprite(texture.getTexture());
+
+        postProcessShader.setUniform("texture", texture.getTexture());
         window.clear(sf::Color::Black);
-        window.draw(fullscreenTriangle, &shader);
+        window.draw(sprite, &postProcessShader);
         window.display();
     }
     return 0;
